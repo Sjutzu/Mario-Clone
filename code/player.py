@@ -1,10 +1,12 @@
 import pygame
 from support import import_dir
+from tiles import StaticTile
 
 class Player(pygame.sprite.Sprite):
     def __init__(self, position, surface, create_particles):
         super().__init__()
         self.import_character_assets()
+        self.goal2 = pygame.sprite.GroupSingle()
         self.player_index = 0
         self.animation_speed = 0.15
         self.image = self.animations['idle'][self.player_index]
@@ -29,6 +31,19 @@ class Player(pygame.sprite.Sprite):
         self.on_right = False
         self.on_left = False
         self.reset = False
+
+        self.health = 3
+        self.max_health = 5
+        self.invincible = False
+        self.invincibility_timer = 1000
+        self.damage_taken_timer = 0
+        self.full_heart = pygame.image.load("../graphics/health/full_heart.png").convert_alpha()
+
+    def invincibility_time(self):
+        if self.invincible:
+            current_time = pygame.time.get_ticks()
+            if current_time - self.damage_taken_timer >= self.invincibility_timer:
+                self.invincible = False
 
     def import_character_assets(self):
         character_path = '../graphics/character/'
@@ -98,7 +113,7 @@ class Player(pygame.sprite.Sprite):
         else:
             self.direction.x = 0
 
-        if keys[pygame.K_SPACE] and self.on_ground:
+        if keys[pygame.K_SPACE]:
             self.jump()
             self.create_particles(self.rect.midbottom)
 
@@ -121,7 +136,10 @@ class Player(pygame.sprite.Sprite):
         self.direction.y = self.jump_speed
 
     def update(self):
+
         self.get_input()
         self.get_status()
         self.animate()
         self.run_dust_animation()
+        self.invincibility_time()
+
