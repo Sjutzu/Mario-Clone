@@ -1,3 +1,5 @@
+import sys
+
 import pygame
 from support import import_csv_layout, import_cut_graphic
 from settings import tile_size, screen_height, screen_width
@@ -7,16 +9,22 @@ from particles import ParticleEffect
 
 class Level:
     def __init__(self, level_data, surface):
+        self.reset_enemy = False
+        #coins
+        self.player_gold = 0
+        self.font = pygame.font.Font("../font/ARCADEPI.TTF",30)
+        self.coin = pygame.sprite.GroupSingle()
+        self.coin_ammount = 0
         #general setup
         self.display_surface = surface
         self.world_shift = 0
         self.current_x = None
-
         #player
         player_layout = import_csv_layout(level_data['player'])
         self.player_layout = player_layout
         self.player = pygame.sprite.GroupSingle()
         self.goal = pygame.sprite.GroupSingle()
+        self.hearts_of_player = pygame.sprite.Group()
         self.player_setup(player_layout)
         self.distance = 0
 
@@ -24,6 +32,7 @@ class Level:
         #dust
         self.dust_sprite = pygame.sprite.GroupSingle()
         self.player_on_ground = False
+        self.explosion_sprites = pygame.sprite.Group()
 
         #terrain setup
         terrain_layout = import_csv_layout(level_data['terrain'])
@@ -39,6 +48,7 @@ class Level:
 
         #coins
         coin_layout = import_csv_layout(level_data['coins'])
+        self.coin_layouut =coin_layout
         self.coin_sprites = self.tile_group(coin_layout, 'coins')
 
         #foreground palms
@@ -51,6 +61,7 @@ class Level:
 
         #enemy
         enemy_layout = import_csv_layout(level_data['enemies'])
+        self.enemy_layouut = enemy_layout
         self.enemy_sprites = self.tile_group(enemy_layout, 'enemies')
 
         #constraint
@@ -67,6 +78,11 @@ class Level:
 
         #clouds
         self.clouds = Clouds(400, level_width, 10)
+
+    def win(self):
+        if pygame.sprite.spritecollide(self.player.sprite,self.goal,False):
+            pygame.quit()
+            sys.exit()
 
     #picking right tiles with the help of condidiontals
     def tile_group(self, layout, type):
@@ -111,6 +127,12 @@ class Level:
 
         return sprite_group
 
+    def reset_enemies(self):
+        if self.reset_enemy:
+            self.reset_enemy =False
+            self.enemy_sprites = self.tile_group(self.enemy_layouut, 'enemies')
+            self.reset_enemy =False
+            self.coin_sprites = self.tile_group(self.coin_layouut, 'coins')
     #creating the player
     def player_setup(self, layout):
         for row_index, row in enumerate(layout):
@@ -125,6 +147,24 @@ class Level:
                     sprite = StaticTile(tile_size, x, y, hat_surface)
                     self.goal.add(sprite)
 
+    def show_coins(self, ammount):
+        gold_coin = pygame.image.load("../graphics/coins/gold/0.png").convert_alpha()
+        x = 50
+        y = 100
+        sprite = StaticTile(64, x, y, gold_coin)
+        self.coin.add(sprite)
+        coin_ammount_surf = self.font.render(str(self.coin_ammount),False,"#33323d")
+        coin_ammount_rect = coin_ammount_surf.get_rect(midleft = (90,115))
+        self.display_surface.blit(coin_ammount_surf,coin_ammount_rect)
+
+    def hearts(self):
+        heart = pygame.image.load("../graphics/health/full_heart.png").convert_alpha()
+        x = 0
+        y = 45
+        for her in range(self.player.sprite.health):
+            x = x+50
+            sprite = StaticTile(64, x, y, heart)
+            self.hearts_of_player.add(sprite)
     #creating smoke under player when jumping
     def create_jump_particles(self, pos):
         if self.player.sprite.facing_right:
@@ -157,8 +197,10 @@ class Level:
                         player.rect.x = x
                         self.world_shift = (self.distance)
                         player.reset = False
-                        self.distance = 0
-
+                        self.player.sprite.health = 3
+            self.coin_ammount = 0
+            self.distance = 0
+            self.reset_enemy = True
 
     def vertical_movement_collision(self):
         player = self.player.sprite
@@ -191,6 +233,39 @@ class Level:
             if pygame.sprite.spritecollide(enemy, self.constraint_sprites, False):
                 enemy.reverse()
 
+    def check_coin_collisions(self):
+        coin_collisions = pygame.sprite.spritecollide(self.player.sprite, self.coin_sprites, False)
+
+        if coin_collisions:
+            for coin in coin_collisions:
+                self.coin_ammount = self.coin_ammount+1
+                coin.kill()
+    #collisions with enemy
+    def check_enemy_collisions(self):
+        enemy_collisions = pygame.sprite.spritecollide(self.player.sprite, self.enemy_sprites,False)
+
+        if enemy_collisions:
+            for enemy in enemy_collisions:
+                enemy_center = enemy.rect.centery
+                enemy_top = enemy.rect.top
+                player_bottom = self.player.sprite.rect.bottom
+                if enemy_top < player_bottom < enemy_center and self.player.sprite.direction.y >= 0:
+                    self.player.sprite.direction.y = -15
+                    explosion_sprite = ParticleEffect(enemy.rect.center, 'explosion')
+                    self.explosion_sprites.add(explosion_sprite)
+                    enemy.kill()
+                else:
+                    if self.player.sprite.health > 0 and self.player.sprite.invincible == False:
+                        self.player.sprite.health -= 1
+                        self.player.sprite.invincible = True
+                        self.player.sprite.damage_taken_timer = pygame.time.get_ticks()
+                        print(self.player.sprite.health)
+                        self.hearts_of_player.empty()
+
+                    if self.player.sprite.health <= 0:
+                        player = self.player.sprite
+                        player.reset = True
+
     #movement_x
     def horizontal_movement_collision(self):
         player = self.player.sprite
@@ -213,11 +288,7 @@ class Level:
             player.on_right = False
 
     #catching when player is on ground
-    def get_player_on_ground(self):
-        if self.player.sprite.on_ground:
-            self.player_on_ground = True
-        else:
-            self.player_on_ground = False
+
 
     #moving camera
     def scroll_x(self):
@@ -236,7 +307,6 @@ class Level:
         else:
             self.world_shift = 0
             player.speed = 8
-
 
     def run(self):
         #run level
@@ -260,6 +330,8 @@ class Level:
         self.constraint_sprites.update(self.world_shift)
         self.enemy_collision_reverse()
         self.enemy_sprites.draw(self.display_surface)
+        self.explosion_sprites.update(self.world_shift)
+        self.explosion_sprites.draw(self.display_surface)
         #chests
         self.chest_sprites.update(self.world_shift)
         self.chest_sprites.draw(self.display_surface)
@@ -284,7 +356,7 @@ class Level:
         self.player.update()
         self.horizontal_movement_collision()
 
-        self.get_player_on_ground()
+
         self.vertical_movement_collision()
         self.create_landing_dust()
 
@@ -293,7 +365,16 @@ class Level:
         self.player.draw(self.display_surface)
         self.goal.update(self.world_shift)
         self.goal.draw(self.display_surface)
-
+        self.check_enemy_collisions()
+        self.check_coin_collisions()
 
         #water
         self.water.draw(self.display_surface, self.world_shift)
+
+        self.hearts()
+        self.hearts_of_player.draw(self.display_surface)
+
+        self.show_coins(self.coin_ammount)
+        self.coin.draw(self.display_surface)
+
+        self.win()
